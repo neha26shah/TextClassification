@@ -5,7 +5,7 @@ import scala.io.Source._
 class MultinomialNaiveBayes {
 
   def train_model(directory_name:String): Unit={
-    val classes_dir = (new File(directory_name)).listFiles.filter(_.isDirectory)
+    val classes_dir = new File(directory_name).listFiles.filter(_.isDirectory)
     MultinomialNaiveBayes.list_classes= classes_dir.map(_.getName)
     for(class_name<-MultinomialNaiveBayes.list_classes){
       MultinomialNaiveBayes.class_word_counts.put(class_name,new HashMap[String,Int]())
@@ -14,7 +14,9 @@ class MultinomialNaiveBayes {
     for(class_name<- classes_dir){
       val directory_struct = class_name.listFiles.filter(_.isFile)
       for(file<-directory_struct){
-        val lines = fromFile(file).getLines().mkString
+        val txtSource =fromFile(file)
+        val lines = txtSource.getLines().mkString
+        txtSource.close()
         val tokens = MultinomialNaiveBayes.tokenizer.tokenize(lines)
         update_dictionaries(tokens,class_name.getName)
       }
@@ -31,16 +33,18 @@ class MultinomialNaiveBayes {
       for(token<-tokens){
         MultinomialNaiveBayes.vocab += token
         MultinomialNaiveBayes.class_total_word_counts.put(class_name,MultinomialNaiveBayes.class_total_word_counts.getOrElse(class_name,0)+1)
-        val original_counts = MultinomialNaiveBayes.class_word_counts.getOrElse(class_name,new HashMap[String,Int]()).getOrElse(token,0)
-        MultinomialNaiveBayes.class_word_counts.getOrElse(class_name,new HashMap[String,Int]()).put(token,original_counts+1)
+        val counts_updated = MultinomialNaiveBayes.class_word_counts.getOrElse(class_name,new HashMap[String,Int]()).getOrElse(token,0)+1
+        val dict_updated = MultinomialNaiveBayes.class_word_counts.getOrElse(class_name,new HashMap[String,Int]())
+        dict_updated.put(token,counts_updated)
+        MultinomialNaiveBayes.class_word_counts.put(class_name,dict_updated)
       }
   }
 
 
-  def unnormalized_log_posterior(tokens:Array[String],class_name:String,alpha:Float): Double ={
+  def unnormalized_log_posterior(tokens:Array[String],class_name:String,alpha:Double): Double ={
     var log_likelihood=0.0
     for(token<-tokens){
-      if ((MultinomialNaiveBayes.vocab contains token )) {
+      if (MultinomialNaiveBayes.vocab contains token ) {
         val item1 = MultinomialNaiveBayes.class_word_counts.getOrElse(class_name, new HashMap[String, Int]()).getOrElse(token, 0)
         val item2 = MultinomialNaiveBayes.class_total_word_counts.getOrElse(class_name,0)
         val item3 = MultinomialNaiveBayes.vocab.size
@@ -51,18 +55,57 @@ class MultinomialNaiveBayes {
     return log_likelihood + MultinomialNaiveBayes.priors.getOrElse(class_name,0.0)
   }
 
-  def predict(predictStatement:String,alpha:Float): String = {
+  def predict(predictStatement:String,alpha:Double): String = {
     val tokens = MultinomialNaiveBayes.tokenizer.tokenize(predictStatement)
-    var max_score= 0.0
-    var max_label= ""
+    val scores_class = HashMap[String,Double]()
     for(class_name<-MultinomialNaiveBayes.list_classes){
       val class_score = unnormalized_log_posterior(tokens,class_name,alpha)
-      if (max_label== "" || (max_score<=class_score)){
-        max_score = class_score
-        max_label = class_name
+      scores_class.put(class_name,class_score)
+    }
+    val sequence_sorted= scores_class.toSeq.sortWith{(leftE,rightE)=>leftE._2 > rightE._2}
+    return sequence_sorted(0)._1
+  }
+
+  def getAccuracy(directory_name:String,alpha:Double): Double={
+    var total_documents = 0
+    var predicted_correct = 0
+    val classes_dir = (new File(directory_name)).listFiles.filter(_.isDirectory)
+    for(class_name<- classes_dir){
+      val directory_struct = class_name.listFiles.filter(_.isFile)
+      for(file<-directory_struct){
+        total_documents = total_documents+1
+        val txtSource =fromFile(file)
+        val lines = txtSource.getLines().mkString
+        txtSource.close()
+        val predicted_class = predict(lines,alpha)
+        if(predicted_class == class_name.getName()){
+          predicted_correct = predicted_correct+1
+        }
       }
     }
-    return max_label
+    return predicted_correct*1.0/(total_documents*1.0)
+  }
+
+  def getVocab(): Set[String] ={
+    return MultinomialNaiveBayes.vocab
+  }
+  def getClassTotalDocCounts(): HashMap[String,Int] ={
+    return MultinomialNaiveBayes.class_total_doc_counts
+  }
+  def getClassTotalWordCounts(): HashMap[String,Int] = {
+    return MultinomialNaiveBayes.class_total_word_counts
+  }
+  def getClassWordCounts(): HashMap[String,HashMap[String,Int]]={
+    return MultinomialNaiveBayes.class_word_counts
+  }
+  def getListClasses(): Array[String] = {
+    return MultinomialNaiveBayes.list_classes
+  }
+  def getPriors(): HashMap[String,Double] = {
+    return MultinomialNaiveBayes.priors
+  }
+  def countDocuments(): Int = {
+    return MultinomialNaiveBayes.total_documents
   }
 }
 
